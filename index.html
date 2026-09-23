@@ -284,6 +284,12 @@
     cursor: pointer;
   }
   #authScreen button:disabled { opacity: 0.5; cursor: default; }
+  #codeRow input {
+    text-align: center;
+    letter-spacing: 0.3em;
+    font-family: 'Oswald', sans-serif;
+    font-size: 18px;
+  }
   #authMsg { margin-top: 12px; font-size: 12.5px; color: var(--recover); min-height: 16px; }
   #authMsg.err { color: var(--iron); }
 
@@ -301,9 +307,13 @@
 
 <div id="authScreen">
   <h1>Push, pull, <span style="color:var(--iron)">repeat.</span></h1>
-  <p>Sign in with your email to save your progress. No password &mdash; we'll send a one-time link.</p>
+  <p>Sign in with your email to save your progress. No password &mdash; we'll send a 6-digit code.</p>
   <input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email">
-  <button id="sendLinkBtn">Send sign-in link</button>
+  <button id="sendLinkBtn">Send code</button>
+  <div id="codeRow" style="display:none; margin-top:14px;">
+    <input type="text" id="codeInput" placeholder="6-digit code" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+    <button id="verifyBtn">Verify &amp; sign in</button>
+  </div>
   <div id="authMsg"></div>
 </div>
 
@@ -549,6 +559,9 @@ const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
 const emailInput = document.getElementById('emailInput');
 const sendLinkBtn = document.getElementById('sendLinkBtn');
+const codeRow = document.getElementById('codeRow');
+const codeInput = document.getElementById('codeInput');
+const verifyBtn = document.getElementById('verifyBtn');
 const authMsg = document.getElementById('authMsg');
 const signOutBtn = document.getElementById('signOutBtn');
 
@@ -559,17 +572,42 @@ sendLinkBtn.addEventListener('click', async () => {
   authMsg.className = '';
   authMsg.textContent = 'Sending...';
   try {
+    // No emailRedirectTo: this sends a 6-digit code instead of a clickable
+    // link, which avoids corporate email link-scanners burning the token
+    // before the user opens it.
     const { error } = await sb.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.href }
+      options: { shouldCreateUser: true }
     });
     if (error) throw error;
-    authMsg.textContent = 'Check your email for a sign-in link.';
+    authMsg.className = '';
+    authMsg.textContent = 'Enter the 6-digit code we emailed you.';
+    codeRow.style.display = 'block';
+    codeInput.focus();
   } catch (err) {
     authMsg.className = 'err';
-    authMsg.textContent = err.message || 'Could not send link. Try again.';
+    authMsg.textContent = err.message || 'Could not send code. Try again.';
   } finally {
     sendLinkBtn.disabled = false;
+  }
+});
+
+verifyBtn.addEventListener('click', async () => {
+  const email = emailInput.value.trim();
+  const token = codeInput.value.trim();
+  if (!email || !token) return;
+  verifyBtn.disabled = true;
+  authMsg.className = '';
+  authMsg.textContent = 'Verifying...';
+  try {
+    const { error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+    if (error) throw error;
+    // onAuthStateChange picks up the new session and shows the app
+  } catch (err) {
+    authMsg.className = 'err';
+    authMsg.textContent = err.message || 'Invalid or expired code. Try again.';
+  } finally {
+    verifyBtn.disabled = false;
   }
 });
 
