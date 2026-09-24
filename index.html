@@ -407,6 +407,19 @@
     cursor: pointer;
   }
   #authScreen button:disabled { opacity: 0.5; cursor: default; }
+  .auth-tabs { display: flex; gap: 6px; margin-bottom: 16px; justify-content: center; }
+  .auth-tab {
+    background: none; border: 1px solid var(--line); color: var(--chalk-dim);
+    padding: 8px 16px; border-radius: 20px; font-family: 'Oswald', sans-serif;
+    font-size: 12.5px; cursor: pointer;
+  }
+  .auth-tab.active { background: var(--iron); border-color: var(--iron); color: var(--chalk); }
+  .link-btn {
+    background: none !important; border: none !important; color: var(--chalk-dim) !important;
+    text-decoration: underline; font-family: 'Inter', sans-serif !important; font-weight: 400 !important;
+    font-size: 12.5px !important; padding: 4px 0 !important; margin-top: 4px !important;
+  }
+  #codeFlow { margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
   #codeRow input {
     text-align: center;
     letter-spacing: 0.3em;
@@ -430,13 +443,26 @@
 
 <div id="authScreen">
   <h1>Push, pull, <span style="color:var(--iron)">repeat.</span></h1>
-  <p>Sign in with your email to save your progress. No password &mdash; we'll send a 6-digit code.</p>
-  <input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email">
-  <button id="sendLinkBtn">Send code</button>
-  <div id="codeRow" style="display:none; margin-top:14px;">
-    <input type="text" id="codeInput" placeholder="6-digit code" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
-    <button id="verifyBtn">Verify &amp; sign in</button>
+  <div class="auth-tabs">
+    <button class="auth-tab active" data-mode="login">Sign in</button>
+    <button class="auth-tab" data-mode="register">Create account</button>
   </div>
+  <p id="authIntro">Sign in with your email and password.</p>
+  <input type="email" id="emailInput" placeholder="you@example.com" autocomplete="email">
+  <input type="password" id="passwordInput" placeholder="password" autocomplete="current-password">
+  <button id="passwordSubmitBtn">Sign in</button>
+  <button id="useCodeBtn" class="link-btn">Or sign in with an emailed code instead</button>
+
+  <div id="codeFlow" style="display:none;">
+    <input type="email" id="codeEmailInput" placeholder="you@example.com" autocomplete="email">
+    <button id="sendLinkBtn">Send code</button>
+    <div id="codeRow" style="display:none; margin-top:14px;">
+      <input type="text" id="codeInput" placeholder="6-digit code" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+      <button id="verifyBtn">Verify &amp; sign in</button>
+    </div>
+    <button id="backToPasswordBtn" class="link-btn">Back to password sign-in</button>
+  </div>
+
   <div id="authMsg"></div>
 </div>
 
@@ -846,15 +872,76 @@ function selectDay(key) {
 const authScreen = document.getElementById('authScreen');
 const appShell = document.getElementById('appShell');
 const emailInput = document.getElementById('emailInput');
+const passwordInput = document.getElementById('passwordInput');
+const passwordSubmitBtn = document.getElementById('passwordSubmitBtn');
+const useCodeBtn = document.getElementById('useCodeBtn');
+const backToPasswordBtn = document.getElementById('backToPasswordBtn');
+const codeFlow = document.getElementById('codeFlow');
+const codeEmailInput = document.getElementById('codeEmailInput');
 const sendLinkBtn = document.getElementById('sendLinkBtn');
 const codeRow = document.getElementById('codeRow');
 const codeInput = document.getElementById('codeInput');
 const verifyBtn = document.getElementById('verifyBtn');
 const authMsg = document.getElementById('authMsg');
+const authIntro = document.getElementById('authIntro');
 const signOutBtn = document.getElementById('signOutBtn');
 
-sendLinkBtn.addEventListener('click', async () => {
+let authMode = 'login'; // 'login' | 'register'
+
+document.querySelectorAll('.auth-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    authMode = tab.dataset.mode;
+    document.querySelectorAll('.auth-tab').forEach(t => t.classList.toggle('active', t === tab));
+    passwordSubmitBtn.textContent = authMode === 'login' ? 'Sign in' : 'Create account';
+    authIntro.textContent = authMode === 'login'
+      ? 'Sign in with your email and password.'
+      : 'Create an account with an email and password.';
+    authMsg.textContent = '';
+    authMsg.className = '';
+  });
+});
+
+passwordSubmitBtn.addEventListener('click', async () => {
   const email = emailInput.value.trim();
+  const password = passwordInput.value;
+  if (!email || !password) { authMsg.className = 'err'; authMsg.textContent = 'Enter an email and password.'; return; }
+  passwordSubmitBtn.disabled = true;
+  authMsg.className = '';
+  authMsg.textContent = authMode === 'login' ? 'Signing in...' : 'Creating account...';
+  try {
+    if (authMode === 'login') {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      // onAuthStateChange takes over from here
+    } else {
+      const { error } = await sb.auth.signUp({ email, password });
+      if (error) throw error;
+      authMsg.className = '';
+      authMsg.textContent = 'Account created — you are signed in.';
+    }
+  } catch (err) {
+    authMsg.className = 'err';
+    authMsg.textContent = err.message || 'Something went wrong. Try again.';
+  } finally {
+    passwordSubmitBtn.disabled = false;
+  }
+});
+
+useCodeBtn.addEventListener('click', () => {
+  codeFlow.style.display = 'block';
+  authMsg.textContent = '';
+  authMsg.className = '';
+});
+
+backToPasswordBtn.addEventListener('click', () => {
+  codeFlow.style.display = 'none';
+  codeRow.style.display = 'none';
+  authMsg.textContent = '';
+  authMsg.className = '';
+});
+
+sendLinkBtn.addEventListener('click', async () => {
+  const email = codeEmailInput.value.trim();
   if (!email) return;
   sendLinkBtn.disabled = true;
   authMsg.className = '';
@@ -881,7 +968,7 @@ sendLinkBtn.addEventListener('click', async () => {
 });
 
 verifyBtn.addEventListener('click', async () => {
-  const email = emailInput.value.trim();
+  const email = codeEmailInput.value.trim();
   const token = codeInput.value.trim();
   if (!email || !token) return;
   verifyBtn.disabled = true;
@@ -915,6 +1002,23 @@ async function showApp(user) {
   loadPRs();
   loadFood();
   loadPrograms();
+  loadProfile();
+}
+
+let currentRole = 'user';
+async function loadProfile() {
+  const { data } = await sb.from('profiles').select('role, email').eq('id', currentUser.id).single();
+  currentRole = (data && data.role) || 'user';
+  const bar = document.getElementById('signOutBar');
+  const existingBadge = document.getElementById('roleBadge');
+  if (existingBadge) existingBadge.remove();
+  if (currentRole === 'admin') {
+    const badge = document.createElement('span');
+    badge.id = 'roleBadge';
+    badge.textContent = 'ADMIN';
+    badge.style.cssText = 'font-family:Oswald,sans-serif;font-size:10px;color:var(--brass);border:1px solid var(--brass);padding:3px 8px;border-radius:3px;margin-right:auto;letter-spacing:0.05em;';
+    bar.prepend(badge);
+  }
 }
 
 function showAuth() {
