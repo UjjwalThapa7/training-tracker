@@ -8,6 +8,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoiQmFyYmVsbCBDcmV3IFRyYWluaW5nIFRyYWNrZXIiLCJzaG9ydF9uYW1lIjoiQmFyYmVsbENyZXciLCJzdGFydF91cmwiOiIuLyIsImRpc3BsYXkiOiJzdGFuZGFsb25lIiwiYmFja2dyb3VuZF9jb2xvciI6IiMxNzE4MWEiLCJ0aGVtZV9jb2xvciI6IiNiNTM4MmIiLCJpY29ucyI6W119">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BarbellCrew">
+<meta name="theme-color" content="#17181a">
 <style>
   :root {
     --bg: #17181a;
@@ -359,6 +365,7 @@
   .pr-item .name { font-size: 14px; color: var(--chalk); }
   .pr-item .val { font-family: 'Oswald', sans-serif; color: var(--brass); font-size: 16px; }
   .pr-item input { width: 70px; text-align: center; }
+  .quick-row button.range-active { background: var(--iron); color: var(--chalk); border-color: var(--iron); }
   .empty-hint { color: var(--chalk-dim); font-size: 12.5px; text-align: center; padding: 10px 0; }
 
   /* auth */
@@ -445,10 +452,12 @@
 
   <div class="sect-nav" id="sectNav">
     <button class="sect-btn active" data-sect="training">Training</button>
+    <button class="sect-btn" data-sect="history">History</button>
     <button class="sect-btn" data-sect="weight">Weight</button>
     <button class="sect-btn" data-sect="water">Water</button>
     <button class="sect-btn" data-sect="prs">PRs</button>
     <button class="sect-btn" data-sect="food">Food</button>
+    <button class="sect-btn" data-sect="programs">Programs</button>
   </div>
 
   <div class="sect-panel show" id="sect-training">
@@ -513,6 +522,59 @@
     <div class="mod-card">
       <h3>Today's log</h3>
       <div class="mini-list" id="foodList"></div>
+    </div>
+  </div>
+
+  <div class="sect-panel" id="sect-history">
+    <div class="quick-row" id="rangePicker">
+      <button data-range="7" class="range-active">7d</button>
+      <button data-range="30">30d</button>
+      <button data-range="90">90d</button>
+      <button data-range="9999">All</button>
+    </div>
+    <div class="mod-card">
+      <h3>Consistency</h3>
+      <div class="big-stat" id="streakStat">0</div>
+      <div class="stat-label" id="streakLabel">day streak</div>
+      <div class="mini-list" id="missedList"></div>
+    </div>
+    <div class="mod-card">
+      <h3>Body weight</h3>
+      <canvas id="weightChart" height="180"></canvas>
+    </div>
+    <div class="mod-card">
+      <h3>Water intake (daily total)</h3>
+      <canvas id="waterChart" height="180"></canvas>
+    </div>
+    <div class="mod-card">
+      <h3>Calories (daily total)</h3>
+      <canvas id="foodChart" height="180"></canvas>
+    </div>
+    <div class="mod-card">
+      <h3>PR progression</h3>
+      <canvas id="prChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <div class="sect-panel" id="sect-programs">
+    <div class="mod-card">
+      <h3>Your programs</h3>
+      <div class="mini-list" id="programList"></div>
+    </div>
+    <div class="mod-card">
+      <h3>Create a new program</h3>
+      <p style="font-size:12.5px; color:var(--chalk-dim); margin:0 0 10px;">
+        Duplicates your currently active split so you can rename and tweak it below.
+        Editing is raw JSON for now &mdash; same shape as the built-in split.
+      </p>
+      <div class="mod-row">
+        <input type="text" id="programNameInput" placeholder="Program name (e.g. Cut Phase)">
+        <button id="programCreateBtn">Create</button>
+      </div>
+      <textarea id="programJsonInput" rows="10" style="width:100%; background:var(--surface-2); border:1px solid var(--line); color:var(--chalk); border-radius:4px; padding:10px; font-family:monospace; font-size:12px; margin-top:10px; display:none;"></textarea>
+      <div class="mod-row" id="programSaveRow" style="display:none; margin-top:8px;">
+        <button id="programSaveBtn" style="flex:1;">Save changes</button>
+      </div>
     </div>
   </div>
 
@@ -685,6 +747,20 @@ DATA.forEach(d => {
         <p>10 min jog or incline treadmill walk to close out the session</p>
       </div>
     `;
+    html += `
+      <div class="mod-card" style="margin-top:10px;">
+        <h3 style="font-size:13px;">Log today's session</h3>
+        <div class="mod-row">
+          <button class="day-status-btn" data-status="completed" data-day="${d.key}" style="flex:1;">Completed</button>
+          <button class="day-status-btn ghost" data-status="missed" data-day="${d.key}" style="flex:1; background:var(--surface-2); border:1px solid var(--line); color:var(--chalk-dim);">Missed</button>
+        </div>
+        <div id="missedReasonRow-${d.key}" style="display:none; margin-top:8px;">
+          <input type="text" id="missedReasonInput-${d.key}" placeholder="why? (optional)" style="width:100%; background:var(--surface-2); border:1px solid var(--line); color:var(--chalk); padding:9px 12px; border-radius:4px; font-size:13px; margin-bottom:8px;">
+          <button class="save-missed-btn" data-day="${d.key}" style="width:100%;">Save</button>
+        </div>
+        <div id="dayStatusMsg-${d.key}" style="font-size:12px; color:var(--recover); margin-top:6px;"></div>
+      </div>
+    `;
     panel.innerHTML = html;
   }
 
@@ -710,6 +786,35 @@ document.querySelectorAll('.check').forEach(btn => {
 const jsDayIdx = new Date().getDay(); // 0 = Sunday
 const order = ['sun','mon','tue','wed','thu','fri','sat'];
 selectDay(order[jsDayIdx]);
+
+document.querySelectorAll('.day-status-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const day = btn.dataset.day;
+    const status = btn.dataset.status;
+    if (status === 'missed') {
+      document.getElementById('missedReasonRow-' + day).style.display = 'block';
+    } else {
+      saveDayStatus(day, 'completed', null);
+    }
+  });
+});
+document.querySelectorAll('.save-missed-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const day = btn.dataset.day;
+    const reason = document.getElementById('missedReasonInput-' + day).value.trim();
+    saveDayStatus(day, 'missed', reason || null);
+  });
+});
+
+async function saveDayStatus(dayKey, status, reason) {
+  if (!currentUser) return;
+  const msgEl = document.getElementById('dayStatusMsg-' + dayKey);
+  await sb.from('day_status').upsert(
+    { user_id: currentUser.id, logged_at: todayStr(), day_key: dayKey, status, reason },
+    { onConflict: 'user_id,logged_at' }
+  );
+  if (msgEl) msgEl.textContent = status === 'completed' ? 'Logged as completed for today.' : 'Logged as missed.';
+}
 } // end buildUI
 
 function updateProgress() {
@@ -809,6 +914,7 @@ async function showApp(user) {
   loadWater();
   loadPRs();
   loadFood();
+  loadPrograms();
 }
 
 function showAuth() {
@@ -830,12 +936,22 @@ sb.auth.getSession().then(({ data }) => {
 });
 
 /* ---------- section nav ---------- */
+let historyRangeDays = 7;
 function initSectionNav() {
   document.querySelectorAll('.sect-btn').forEach(btn => {
     btn.onclick = () => {
       document.querySelectorAll('.sect-btn').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.sect-panel').forEach(p => p.classList.toggle('show', p.id === 'sect-' + btn.dataset.sect));
+      if (btn.dataset.sect === 'history') loadHistory();
     };
+  });
+  document.querySelectorAll('#rangePicker button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#rangePicker button').forEach(b => b.classList.remove('range-active'));
+      btn.classList.add('range-active');
+      historyRangeDays = parseInt(btn.dataset.range, 10);
+      loadHistory();
+    });
   });
 }
 
@@ -983,6 +1099,192 @@ function attachDelHandlers(container, reloadFn) {
     });
   });
 }
+
+/* ---------- history / charts ---------- */
+let weightChartInst = null, waterChartInst = null, foodChartInst = null, prChartInst = null;
+const CHART_COLORS = ['#b5382b', '#c99a3c', '#3e7068', '#7d2a21', '#a6a8ad'];
+
+function daysAgoStr(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function chartBaseOptions() {
+  return {
+    responsive: true,
+    plugins: { legend: { labels: { color: '#a6a8ad', font: { family: 'Inter' } } } },
+    scales: {
+      x: { ticks: { color: '#a6a8ad', maxRotation: 0 }, grid: { color: '#34363b' } },
+      y: { ticks: { color: '#a6a8ad' }, grid: { color: '#34363b' } }
+    }
+  };
+}
+
+async function loadHistory() {
+  if (!currentUser) return;
+  const since = historyRangeDays >= 9999 ? '2000-01-01' : daysAgoStr(historyRangeDays);
+
+  // Weight line chart
+  const { data: wData } = await sb.from('body_weight_logs')
+    .select('logged_at, weight').gte('logged_at', since).order('logged_at', { ascending: true });
+  const wCtx = document.getElementById('weightChart');
+  if (weightChartInst) weightChartInst.destroy();
+  weightChartInst = new Chart(wCtx, {
+    type: 'line',
+    data: { labels: (wData || []).map(r => r.logged_at), datasets: [{ label: 'Weight', data: (wData || []).map(r => r.weight), borderColor: CHART_COLORS[0], backgroundColor: 'transparent', tension: 0.25 }] },
+    options: chartBaseOptions()
+  });
+
+  // Water bar chart (daily totals)
+  const { data: waData } = await sb.from('water_logs')
+    .select('logged_at, amount_ml').gte('logged_at', since).order('logged_at', { ascending: true });
+  const waTotals = {};
+  (waData || []).forEach(r => { waTotals[r.logged_at] = (waTotals[r.logged_at] || 0) + r.amount_ml; });
+  const waLabels = Object.keys(waTotals).sort();
+  const waCtx = document.getElementById('waterChart');
+  if (waterChartInst) waterChartInst.destroy();
+  waterChartInst = new Chart(waCtx, {
+    type: 'bar',
+    data: { labels: waLabels, datasets: [{ label: 'ml', data: waLabels.map(l => waTotals[l]), backgroundColor: CHART_COLORS[2] }] },
+    options: chartBaseOptions()
+  });
+
+  // Food bar chart (daily totals)
+  const { data: fData } = await sb.from('food_logs')
+    .select('logged_at, calories').gte('logged_at', since).order('logged_at', { ascending: true });
+  const fTotals = {};
+  (fData || []).forEach(r => { fTotals[r.logged_at] = (fTotals[r.logged_at] || 0) + r.calories; });
+  const fLabels = Object.keys(fTotals).sort();
+  const fCtx = document.getElementById('foodChart');
+  if (foodChartInst) foodChartInst.destroy();
+  foodChartInst = new Chart(fCtx, {
+    type: 'bar',
+    data: { labels: fLabels, datasets: [{ label: 'kcal', data: fLabels.map(l => fTotals[l]), backgroundColor: CHART_COLORS[1] }] },
+    options: chartBaseOptions()
+  });
+
+  // PR progression multi-line
+  const { data: prData } = await sb.from('personal_records')
+    .select('exercise_name, weight, achieved_at').gte('achieved_at', since).order('achieved_at', { ascending: true });
+  const byLift = {};
+  (prData || []).forEach(r => { (byLift[r.exercise_name] = byLift[r.exercise_name] || []).push(r); });
+  const allDates = [...new Set((prData || []).map(r => r.achieved_at))].sort();
+  const prDatasets = Object.keys(byLift).map((lift, i) => {
+    const map = {};
+    byLift[lift].forEach(r => { map[r.achieved_at] = r.weight; });
+    return {
+      label: lift,
+      data: allDates.map(d => map[d] ?? null),
+      borderColor: CHART_COLORS[i % CHART_COLORS.length],
+      backgroundColor: 'transparent',
+      spanGaps: true,
+      tension: 0.25
+    };
+  });
+  const prCtx = document.getElementById('prChart');
+  if (prChartInst) prChartInst.destroy();
+  prChartInst = new Chart(prCtx, {
+    type: 'line',
+    data: { labels: allDates, datasets: prDatasets },
+    options: chartBaseOptions()
+  });
+
+  // Streak + missed days
+  const { data: statusData } = await sb.from('day_status')
+    .select('logged_at, status, reason, day_key').gte('logged_at', since).order('logged_at', { ascending: false });
+  const streakEl = document.getElementById('streakStat');
+  const streakLabelEl = document.getElementById('streakLabel');
+  const missedListEl = document.getElementById('missedList');
+  let streak = 0;
+  const sortedAsc = [...(statusData || [])].sort((a, b) => a.logged_at.localeCompare(b.logged_at));
+  for (let i = sortedAsc.length - 1; i >= 0; i--) {
+    if (sortedAsc[i].status === 'completed') streak++;
+    else break;
+  }
+  streakEl.textContent = streak;
+  streakLabelEl.textContent = streak === 1 ? 'day streak' : 'day streak';
+  const missed = (statusData || []).filter(r => r.status === 'missed');
+  missedListEl.innerHTML = missed.length
+    ? missed.map(r => `<div class="mini-row"><span class="l">${r.day_key} &middot; ${r.logged_at}</span><span class="r">${r.reason || 'no reason given'}</span></div>`).join('')
+    : '<div class="empty-hint">No missed days logged in this range.</div>';
+}
+
+/* ---------- programs ---------- */
+async function loadPrograms() {
+  if (!currentUser) return;
+  let { data } = await sb.from('programs').select('id, name, is_active, data').order('created_at', { ascending: true });
+  if (!data || !data.length) {
+    // seed with the built-in split as the first program
+    const seeded = await sb.from('programs').insert({
+      user_id: currentUser.id, name: 'Default Split', data: DATA, is_active: true
+    }).select();
+    data = seeded.data || [];
+  }
+  const listEl = document.getElementById('programList');
+  listEl.innerHTML = data.map(p => `
+    <div class="mini-row">
+      <span class="l">${p.name}${p.is_active ? ' <span style="color:var(--iron); font-size:11px;">(active)</span>' : ''}</span>
+      <span class="r">
+        ${!p.is_active ? `<button class="del" data-activate="${p.id}" style="margin-right:8px;">switch to this</button>` : ''}
+        <button class="del" data-edit="${p.id}">edit</button>
+      </span>
+    </div>
+  `).join('');
+  listEl.querySelectorAll('[data-activate]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.activate;
+      await sb.from('programs').update({ is_active: false }).eq('user_id', currentUser.id);
+      await sb.from('programs').update({ is_active: true }).eq('id', id);
+      const { data: active } = await sb.from('programs').select('data').eq('id', id).single();
+      if (active && active.data) {
+        DATA.length = 0;
+        DATA.push(...active.data);
+        buildUI();
+      }
+      loadPrograms();
+    });
+  });
+  listEl.querySelectorAll('[data-edit]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const prog = data.find(p => p.id === btn.dataset.edit);
+      const box = document.getElementById('programJsonInput');
+      box.style.display = 'block';
+      box.value = JSON.stringify(prog.data, null, 2);
+      box.dataset.editingId = prog.id;
+      document.getElementById('programSaveRow').style.display = 'flex';
+    });
+  });
+}
+
+document.getElementById('programCreateBtn').addEventListener('click', async () => {
+  const name = document.getElementById('programNameInput').value.trim();
+  if (!name || !currentUser) return;
+  await sb.from('programs').insert({ user_id: currentUser.id, name, data: DATA, is_active: false });
+  document.getElementById('programNameInput').value = '';
+  loadPrograms();
+});
+
+document.getElementById('programSaveBtn').addEventListener('click', async () => {
+  const box = document.getElementById('programJsonInput');
+  const id = box.dataset.editingId;
+  if (!id) return;
+  try {
+    const parsed = JSON.parse(box.value);
+    await sb.from('programs').update({ data: parsed, updated_at: new Date().toISOString() }).eq('id', id);
+    const { data: prog } = await sb.from('programs').select('is_active').eq('id', id).single();
+    if (prog && prog.is_active) {
+      DATA.length = 0;
+      DATA.push(...parsed);
+      buildUI();
+    }
+    box.style.display = 'none';
+    document.getElementById('programSaveRow').style.display = 'none';
+    loadPrograms();
+  } catch (e) {
+    alert('Invalid JSON: ' + e.message);
+  }
+});
 </script>
 </body>
 </html>
